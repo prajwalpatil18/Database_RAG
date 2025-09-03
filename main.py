@@ -24,10 +24,10 @@ load_dotenv()
 # ------------------------
 # Setup Embeddings & Groq
 # ------------------------
-os.environ['HF_TOKEN'] = os.getenv("HF_TOKEN")
+st.secrets["HF_TOKEN"]
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
-groq_api_key = os.getenv("API_KEY")
+groq_api_key = st.secrets["API_KEY"]
 llm = ChatGroq(groq_api_key=groq_api_key, model_name="llama-3.1-8b-instant")
 
 # ------------------------
