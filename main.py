@@ -6,7 +6,7 @@ import bcrypt
 import os
 
 # LangChain imports
-from langchain_chroma import Chroma
+from langchain_community.vectorstores import FAISS
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -147,8 +147,7 @@ else:
     if documents:
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=500)
         splits = text_splitter.split_documents(documents)
-        vectorstore = Chroma.from_documents(splits, embedding=embeddings,collection_name="my_collection",
-    persist_directory=None)
+        vectorstore = FAISS.from_documents(splits, embedding=embeddings)
         retriever = vectorstore.as_retriever()
 
     # ------------------------
