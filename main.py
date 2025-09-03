@@ -24,7 +24,7 @@ load_dotenv()
 # ------------------------
 # Setup Embeddings & Groq
 # ------------------------
-st.secrets["HF_TOKEN"]
+token = st.secrets["HF_TOKEN"]
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
 groq_api_key = st.secrets["API_KEY"]
