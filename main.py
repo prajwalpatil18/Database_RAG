@@ -147,7 +147,8 @@ else:
     if documents:
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=500)
         splits = text_splitter.split_documents(documents)
-        vectorstore = Chroma.from_documents(splits, embedding=embeddings)
+        vectorstore = Chroma.from_documents(splits, embedding=embeddings,collection_name="my_collection",
+    persist_directory=None)
         retriever = vectorstore.as_retriever()
 
     # ------------------------
