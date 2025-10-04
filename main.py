@@ -1,11 +1,16 @@
 import streamlit as st
-from sqlalchemy import create_engine, Table, Column, Integer, String, ForeignKey, DateTime, Text, MetaData, select, insert, update
+from sqlalchemy import create_engine, Table, Column, Integer, String, ForeignKey, DateTime, Text, MetaData, select, insert, update, delete
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import bcrypt
 import os
 
+# Avoid gRPC and Chroma lock noise
+os.environ["GRPC_VERBOSITY"] = "ERROR"
+os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "false"
+
 # LangChain imports
+# --- REPLACED Chroma with FAISS to avoid file locking ---
 from langchain_community.vectorstores import FAISS
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
@@ -24,10 +29,10 @@ load_dotenv()
 # ------------------------
 # Setup Embeddings & Groq
 # ------------------------
-token = st.secrets["HF_TOKEN"]
+os.environ['HF_TOKEN'] = os.getenv("HF_TOKEN")
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
-groq_api_key = st.secrets["API_KEY"]
+groq_api_key = os.getenv("API_KEY")
 llm = ChatGroq(groq_api_key=groq_api_key, model_name="llama-3.1-8b-instant")
 
 # ------------------------
@@ -93,9 +98,13 @@ if "active_conversation" not in st.session_state:
     st.session_state.active_conversation = None
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "language" not in st.session_state:
+    st.session_state.language = "English"
+if "store" not in st.session_state:
+    st.session_state.store = {}
 
 st.set_page_config(page_title="RAG PDF Chat App", layout="wide")
-st.title("💬 Conversational RAG with PDF")
+st.title("💬 Conversational RAG with PDF and Language Selection")
 
 # ------------------------
 # Login / Signup
@@ -128,10 +137,20 @@ if st.session_state.user_id is None:
 # ------------------------
 else:
     db = SessionLocal()
-    st.sidebar.title("📂 Upload PDF(s)")
+    st.sidebar.title("📄 Upload PDF(s)")
 
     # ------------------------
-    # Upload PDF Section (above conversations)
+    # Language Selection
+    # ------------------------
+    st.sidebar.subheader("🌐 Choose Response Language")
+    st.session_state.language = st.sidebar.radio(
+        "Select a language for responses:",
+        ["English", "Hindi"],
+        index=0 if st.session_state.language == "English" else 1
+    )
+
+    # ------------------------
+    # Upload PDFs
     # ------------------------
     uploaded_files = st.sidebar.file_uploader("Upload PDF(s)", type="pdf", accept_multiple_files=True)
     documents = []
@@ -144,16 +163,19 @@ else:
             docs = loader.load()
             documents.extend(docs)
 
+    # ------------------------
+    # Build Vectorstore using FAISS (no locking)
+    # ------------------------
     if documents:
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=500)
         splits = text_splitter.split_documents(documents)
-        vectorstore = FAISS.from_documents(splits, embedding=embeddings)
+        vectorstore = FAISS.from_documents(splits, embeddings)
         retriever = vectorstore.as_retriever()
 
     # ------------------------
     # Sidebar Conversations
     # ------------------------
-    st.sidebar.title("Your Conversations")
+    st.sidebar.title("💬 Your Conversations")
     convs = db.execute(
         select(conversations).where(conversations.c.user_id == st.session_state.user_id)
     ).fetchall()
@@ -164,30 +186,23 @@ else:
             if st.button(conv.title, key=f"conv_{conv.id}"):
                 st.session_state.active_conversation = conv.id
                 st.session_state.messages = [
-                    {"role": m.role, "content": m.content} 
+                    {"role": m.role, "content": m.content}
                     for m in db.execute(select(messages).where(messages.c.conversation_id == conv.id)).fetchall()
                 ]
         with col2:
             if st.button("🗑️", key=f"del_{conv.id}"):
-                # Delete conversation messages
-                db.execute(messages.delete().where(messages.c.conversation_id == conv.id))
-                # Delete conversation
-                db.execute(conversations.delete().where(conversations.c.id == conv.id))
+                db.execute(delete(messages).where(messages.c.conversation_id == conv.id))
+                db.execute(delete(conversations).where(conversations.c.id == conv.id))
                 db.commit()
-
-                # Clear session if the deleted conversation was active
                 if st.session_state.active_conversation == conv.id:
                     st.session_state.active_conversation = None
                     st.session_state.messages = []
-
                 st.success(f"Conversation '{conv.title}' deleted.")
                 st.rerun()
 
-    # Create New Conversation (auto-title later)
+    # Create New Conversation
     if st.sidebar.button("➕ New Chat"):
-        result = db.execute(
-            insert(conversations).values(user_id=st.session_state.user_id, title="New Chat")
-        )
+        result = db.execute(insert(conversations).values(user_id=st.session_state.user_id, title="New Chat"))
         db.commit()
         st.session_state.active_conversation = result.inserted_primary_key[0]
         st.session_state.messages = []
@@ -204,19 +219,22 @@ else:
     if documents:
         contextualize_q_system_prompt = (
             "Given a chat history and the latest user question, "
-            "formulate a standalone question which can be understood "
-            "without the chat history. Do NOT answer it, just reformulate if needed."
+            "formulate a standalone question that can be understood "
+            "without chat history. Do NOT answer, just reformulate if needed."
         )
         contextualize_q_prompt = ChatPromptTemplate.from_messages(
             [("system", contextualize_q_system_prompt), MessagesPlaceholder("chat_history"), ("human", "{input}")]
         )
         history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
 
+        # ✅ System prompt includes selected language
         system_prompt = (
-            "You are an assistant for question-answering tasks. "
-            "Use the following pieces of retrieved context to answer the question. "
-            "If you don't know, say you don't know. Keep answer concise (max 3 sentences).\n\n{context}"
+            f"You are an assistant for question-answering tasks. "
+            f"Use the following pieces of retrieved context to answer the question. "
+            f"If you don't know, say you don't know. Keep the answer concise (max 3 sentences). "
+            f"Always respond in {st.session_state.language} language.\n\n{{context}}"
         )
+
         qa_prompt = ChatPromptTemplate.from_messages(
             [("system", system_prompt), MessagesPlaceholder("chat_history"), ("human", "{input}")]
         )
@@ -224,18 +242,19 @@ else:
         rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
 
         def get_session_history(session_id: str) -> BaseChatMessageHistory:
-            if 'store' not in st.session_state:
-                st.session_state.store = {}
             if session_id not in st.session_state.store:
                 st.session_state.store[session_id] = ChatMessageHistory()
             return st.session_state.store[session_id]
 
         conversational_rag_chain = RunnableWithMessageHistory(
-            rag_chain, get_session_history, input_messages_key="input", history_messages_key="chat_history", output_messages_key="answer"
+            rag_chain, get_session_history,
+            input_messages_key="input",
+            history_messages_key="chat_history",
+            output_messages_key="answer"
         )
 
         # ------------------------
-        # Display Chat Messages
+        # Display Chat
         # ------------------------
         for msg in st.session_state.messages:
             st.chat_message(msg["role"]).write(msg["content"])
@@ -243,41 +262,44 @@ else:
         # ------------------------
         # Chat Input
         # ------------------------
-        if prompt := st.chat_input("Enter your question..."):
+        lang_placeholder = (
+            "Enter your question..." if st.session_state.language == "English" else "अपना प्रश्न दर्ज करें..."
+        )
+        if prompt := st.chat_input(lang_placeholder):
             st.chat_message("user").write(prompt)
             st.session_state.messages.append({"role": "user", "content": prompt})
 
-            # Auto-generate conversation title from first user message
+            # Update conversation title if new
             if st.session_state.active_conversation:
                 conv_id = st.session_state.active_conversation
                 conv_row = db.execute(select(conversations).where(conversations.c.id == conv_id)).fetchone()
                 if conv_row.title == "New Chat":
-                    title_short = prompt if len(prompt) <= 20 else prompt[:30] + "..."
+                    title_short = prompt if len(prompt) <= 30 else prompt[:30] + "..."
                     db.execute(update(conversations).where(conversations.c.id == conv_id).values(title=title_short))
                     db.commit()
 
             with st.spinner("Thinking..."):
-                session_history = get_session_history(st.session_state.active_conversation)
-                response = conversational_rag_chain.invoke({"input": prompt}, config={"configurable": {"session_id": st.session_state.active_conversation}})
-                st.chat_message("assistant").write(response["answer"])
-                st.session_state.messages.append({"role": "assistant", "content": response["answer"]})
+                session_history = get_session_history(str(st.session_state.active_conversation))
+                response = conversational_rag_chain.invoke(
+                    {"input": prompt},
+                    config={"configurable": {"session_id": str(st.session_state.active_conversation)}}
+                )
+                answer = response["answer"]
+                st.chat_message("assistant").write(answer)
+                st.session_state.messages.append({"role": "assistant", "content": answer})
 
-                # Save to SQLite messages table
+                # Save chat to DB
                 if st.session_state.active_conversation:
-                    db.execute(
-                        insert(messages).values(
-                            conversation_id=st.session_state.active_conversation,
-                            role="user",
-                            content=prompt,
-                            timestamp=datetime.utcnow()
-                        )
-                    )
-                    db.execute(
-                        insert(messages).values(
-                            conversation_id=st.session_state.active_conversation,
-                            role="assistant",
-                            content=response["answer"],
-                            timestamp=datetime.utcnow()
-                        )
-                    )
-                    db.commit() 
+                    db.execute(insert(messages).values(
+                        conversation_id=st.session_state.active_conversation,
+                        role="user",
+                        content=prompt,
+                        timestamp=datetime.utcnow()
+                    ))
+                    db.execute(insert(messages).values(
+                        conversation_id=st.session_state.active_conversation,
+                        role="assistant",
+                        content=answer,
+                        timestamp=datetime.utcnow()
+                    ))
+                    db.commit()
