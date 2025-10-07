@@ -238,7 +238,7 @@ else:
     system_prompt = (
         f"You are an assistant for question-answering tasks. "
         f"Use the following pieces of retrieved context to answer the question. "
-        f"If you don't know, say you don't know. Keep the answer concise (max 3 sentences). "
+        f"If the answer is not in the pdf, say you don't know. Keep the answer concise (max 3 sentences). "
         f"Always respond in {st.session_state.language} language.\n\n{{context}}"
     )
 
