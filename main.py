@@ -1,305 +1,167 @@
 import streamlit as st
-from sqlalchemy import create_engine, Table, Column, Integer, String, ForeignKey, DateTime, Text, MetaData, select, insert, update, delete
+from sqlalchemy import create_engine, Table, Column, Integer, String, DateTime, MetaData, select, insert
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import bcrypt
 import os
 
-# Avoid gRPC and Chroma lock noise
-os.environ["GRPC_VERBOSITY"] = "ERROR"
-os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "false"
-
 # LangChain imports
-# --- REPLACED Chroma with FAISS to avoid file locking ---
-from langchain_community.vectorstores import FAISS
-from langchain_community.chat_message_histories import ChatMessageHistory
-from langchain_core.chat_history import BaseChatMessageHistory
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_groq import ChatGroq
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader
-from langchain.chains import create_history_aware_retriever, create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains import RetrievalQA
+from langchain.chat_models import ChatOpenAI
+from langchain.vectorstores import FAISS
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.document_loaders import PyPDFLoader
 
-from dotenv import load_dotenv
-load_dotenv()
+# PDF handling imports
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from PyPDF2 import PdfReader, PdfWriter
 
-# ------------------------
-# Setup Embeddings & Groq
-# ------------------------
-os.environ['HF_TOKEN'] = os.getenv("HF_TOKEN")
-embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-
-groq_api_key = os.getenv("API_KEY")
-llm = ChatGroq(groq_api_key=groq_api_key, model_name="llama-3.1-8b-instant")
-
-# ------------------------
-# SQLite DB Setup
-# ------------------------
-engine = create_engine("sqlite:///rag_chat_app.db", connect_args={"check_same_thread": False})
+# ---------- Database setup ----------
+DATABASE_URL = "sqlite:///users.db"
+engine = create_engine(DATABASE_URL)
 metadata = MetaData()
 
 users = Table(
-    "users", metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
+    "users",
+    metadata,
+    Column("id", Integer, primary_key=True),
     Column("username", String, unique=True, nullable=False),
-    Column("password_hash", String, nullable=False),
-    Column("created_at", DateTime, default=datetime.utcnow)
+    Column("password", String, nullable=False),
+    Column("created_at", DateTime, default=datetime.utcnow),
 )
-
-conversations = Table(
-    "conversations", metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("user_id", Integer, ForeignKey("users.id")),
-    Column("title", String, default="New Chat"),
-    Column("created_at", DateTime, default=datetime.utcnow)
-)
-
-messages = Table(
-    "messages", metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("conversation_id", Integer, ForeignKey("conversations.id")),
-    Column("role", String),
-    Column("content", Text),
-    Column("timestamp", DateTime, default=datetime.utcnow)
-)
-
 metadata.create_all(engine)
-SessionLocal = sessionmaker(bind=engine)
+Session = sessionmaker(bind=engine)
 
-# ------------------------
-# Authentication Helpers
-# ------------------------
-def signup_user(username, password):
-    db = SessionLocal()
-    existing = db.execute(select(users).where(users.c.username == username)).fetchone()
-    if existing:
-        return False, "Username already exists"
-    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-    db.execute(insert(users).values(username=username, password_hash=hashed))
-    db.commit()
-    return True, "Signup successful"
+# ---------- PDF Append Helper ----------
+def append_text_to_pdf(pdf_path, text_to_append):
+    """Appends text to an existing or new PDF."""
+    temp_page = "temp_append.pdf"
+
+    # Create a new PDF page with the text
+    c = canvas.Canvas(temp_page, pagesize=letter)
+    text_object = c.beginText(40, 750)
+    text_object.setFont("Helvetica", 11)
+    for line in text_to_append.split("\n"):
+        text_object.textLine(line)
+    c.drawText(text_object)
+    c.save()
+
+    # Combine the new page with existing pages (if any)
+    writer = PdfWriter()
+    if os.path.exists(pdf_path):
+        try:
+            reader = PdfReader(pdf_path)
+            for page in reader.pages:
+                writer.add_page(page)
+        except Exception:
+            pass
+
+    # Append new content page
+    append_reader = PdfReader(temp_page)
+    for page in append_reader.pages:
+        writer.add_page(page)
+
+    # Save merged PDF
+    with open(pdf_path, "wb") as f_out:
+        writer.write(f_out)
+    os.remove(temp_page)
+
+
+# ---------- User Authentication ----------
+def hash_password(password):
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+
+def check_password(password, hashed):
+    return bcrypt.checkpw(password.encode("utf-8"), hashed)
+
+def register_user(username, password):
+    session = Session()
+    if session.query(users).filter_by(username=username).first():
+        st.warning("Username already exists. Please choose another.")
+        return False
+    hashed_pw = hash_password(password)
+    new_user = {"username": username, "password": hashed_pw}
+    session.execute(insert(users).values(**new_user))
+    session.commit()
+    st.success("Registration successful! You can now log in.")
+    return True
 
 def login_user(username, password):
-    db = SessionLocal()
-    user = db.execute(select(users).where(users.c.username == username)).fetchone()
-    if user and bcrypt.checkpw(password.encode(), user.password_hash.encode()):
-        return True, user.id
-    return False, None
+    session = Session()
+    user = session.query(users).filter_by(username=username).first()
+    if user and check_password(password, user.password):
+        return True
+    return False
 
-# ------------------------
-# Session State
-# ------------------------
-if "user_id" not in st.session_state:
-    st.session_state.user_id = None
-if "active_conversation" not in st.session_state:
-    st.session_state.active_conversation = None
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "language" not in st.session_state:
-    st.session_state.language = "English"
-if "store" not in st.session_state:
-    st.session_state.store = {}
+# ---------- App UI ----------
+st.title("🔍 RAG Q&A Streamlit Chat with PDF Logging")
 
-st.set_page_config(page_title="RAG PDF Chat App", layout="wide")
-st.title("💬 Conversational RAG with PDF and Language Selection")
+menu = ["Login", "Register"]
+choice = st.sidebar.selectbox("Menu", menu)
 
-# ------------------------
-# Login / Signup
-# ------------------------
-if st.session_state.user_id is None:
-    tab1, tab2 = st.tabs(["Login", "Sign Up"])
-    with tab1:
-        username = st.text_input("Username", key="login_user")
-        password = st.text_input("Password", type="password", key="login_pass")
-        if st.button("Login"):
-            success, user_id = login_user(username, password)
-            if success:
-                st.session_state.user_id = user_id
-                st.success("Login successful!")
-                st.rerun()
-            else:
-                st.error("Invalid credentials")
-    with tab2:
-        new_username = st.text_input("New Username", key="signup_user")
-        new_password = st.text_input("New Password", type="password", key="signup_pass")
-        if st.button("Sign Up"):
-            success, msg = signup_user(new_username, new_password)
-            if success:
-                st.success(msg)
-            else:
-                st.error(msg)
+if choice == "Register":
+    st.subheader("Create a New Account")
+    new_user = st.text_input("Username")
+    new_pass = st.text_input("Password", type="password")
+    if st.button("Register"):
+        if new_user and new_pass:
+            register_user(new_user, new_pass)
+        else:
+            st.warning("Please fill all fields.")
 
-# ------------------------
-# Main App (after login)
-# ------------------------
-else:
-    db = SessionLocal()
-    #st.sidebar.title("📄 Upload PDF(s)")
+elif choice == "Login":
+    st.subheader("Login to Your Account")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
 
-    # ------------------------
-    # Language Selection
-    # ------------------------
-    st.sidebar.subheader("🌐 Choose Response Language")
-    st.session_state.language = st.sidebar.radio(
-        "Select a language for responses:",
-        ["English", "Hindi"],
-        index=0 if st.session_state.language == "English" else 1
-    )
+    if st.button("Login"):
+        if login_user(username, password):
+            st.success(f"Welcome, {username}! 🎉")
 
-    # ------------------------
-    # Upload PDFs
-    # ------------------------
-    #uploaded_files = st.sidebar.file_uploader("Upload PDF(s)", type="pdf", accept_multiple_files=True)
-    documents = []
-    
-    loader = PyPDFLoader("temp.pdf")
-    docs = loader.load()
-    documents.extend(docs)
+            # ---------- File Upload ----------
+            uploaded_file = st.file_uploader("Upload your PDF document", type=["pdf"])
+            if uploaded_file:
+                with open("uploaded.pdf", "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                st.info("✅ File uploaded successfully.")
 
-    # ------------------------
-    # Build Vectorstore using FAISS (no locking)
-    # ------------------------
-    if documents:
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=500)
-        splits = text_splitter.split_documents(documents)
-        vectorstore = FAISS.from_documents(splits, embeddings)
-        retriever = vectorstore.as_retriever()
+                # Load document for vector retrieval
+                loader = PyPDFLoader("uploaded.pdf")
+                pages = loader.load()
+                embeddings = OpenAIEmbeddings()
+                vectorstore = FAISS.from_documents(pages, embeddings)
+                retriever = vectorstore.as_retriever()
 
-    # ------------------------
-    # Sidebar Conversations
-    # ------------------------
-    st.sidebar.title("💬 Your Conversations")
-    convs = db.execute(
-        select(conversations).where(conversations.c.user_id == st.session_state.user_id)
-    ).fetchall()
+                # Model setup
+                llm = ChatOpenAI(model="gpt-3.5-turbo")
+                qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
 
-    for conv in convs:
-        col1, col2 = st.sidebar.columns([3, 1])
-        with col1:
-            if st.button(conv.title, key=f"conv_{conv.id}"):
-                st.session_state.active_conversation = conv.id
-                st.session_state.messages = [
-                    {"role": m.role, "content": m.content}
-                    for m in db.execute(select(messages).where(messages.c.conversation_id == conv.id)).fetchall()
-                ]
-        with col2:
-            if st.button("🗑️", key=f"del_{conv.id}"):
-                db.execute(delete(messages).where(messages.c.conversation_id == conv.id))
-                db.execute(delete(conversations).where(conversations.c.id == conv.id))
-                db.commit()
-                if st.session_state.active_conversation == conv.id:
-                    st.session_state.active_conversation = None
-                    st.session_state.messages = []
-                st.success(f"Conversation '{conv.title}' deleted.")
-                st.rerun()
+                # Initialize chat
+                st.session_state.messages = st.session_state.get("messages", [])
 
-    # Create New Conversation
-    if st.sidebar.button("➕ New Chat"):
-        result = db.execute(insert(conversations).values(user_id=st.session_state.user_id, title="New Chat"))
-        db.commit()
-        st.session_state.active_conversation = result.inserted_primary_key[0]
-        st.session_state.messages = []
+                # Display past messages
+                for msg in st.session_state.messages:
+                    with st.chat_message(msg["role"]):
+                        st.markdown(msg["content"])
 
-    if st.sidebar.button("🚪 Logout"):
-        st.session_state.user_id = None
-        st.session_state.active_conversation = None
-        st.session_state.messages = []
-        st.rerun()
+                # Chat input
+                if prompt := st.chat_input("Ask me anything about your document..."):
+                    st.chat_message("user").markdown(prompt)
+                    st.session_state.messages.append({"role": "user", "content": prompt})
 
-    # ------------------------
-    # Setup RAG Chain
-    # ------------------------
-    if documents:
-        contextualize_q_system_prompt = (
-            "Given a chat history and the latest user question, "
-            "formulate a standalone question that can be understood "
-            "without chat history. Do NOT answer, just reformulate if needed."
-        )
-        contextualize_q_prompt = ChatPromptTemplate.from_messages(
-            [("system", contextualize_q_system_prompt), MessagesPlaceholder("chat_history"), ("human", "{input}")]
-        )
-        history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
+                    # Append User Prompt to PDF
+                    append_text_to_pdf("temp.pdf", f"User: {prompt}\n")
 
-        # ✅ System prompt includes selected language
-        system_prompt = (
-            f"You are an assistant for question-answering tasks. "
-            f"Use the following pieces of retrieved context to answer the question. "
-            f"If you don't know, say you don't know. Keep the answer concise (max 3 sentences). "
-            f"Always respond in {st.session_state.language} language.\n\n{{context}}"
-        )
+                    # Get Answer
+                    answer = qa_chain.run(prompt)
+                    st.chat_message("assistant").markdown(answer)
+                    st.session_state.messages.append({"role": "assistant", "content": answer})
 
-        qa_prompt = ChatPromptTemplate.from_messages(
-            [("system", system_prompt), MessagesPlaceholder("chat_history"), ("human", "{input}")]
-        )
-        question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
-        rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+                    # Append Assistant Response to PDF
+                    append_text_to_pdf("temp.pdf", f"Assistant: {answer}\n\n")
 
-        def get_session_history(session_id: str) -> BaseChatMessageHistory:
-            if session_id not in st.session_state.store:
-                st.session_state.store[session_id] = ChatMessageHistory()
-            return st.session_state.store[session_id]
+                    st.success("📝 Conversation saved to temp.pdf")
 
-        conversational_rag_chain = RunnableWithMessageHistory(
-            rag_chain, get_session_history,
-            input_messages_key="input",
-            history_messages_key="chat_history",
-            output_messages_key="answer"
-        )
-
-        # ------------------------
-        # Display Chat
-        # ------------------------
-        for msg in st.session_state.messages:
-            st.chat_message(msg["role"]).write(msg["content"])
-
-        # ------------------------
-        # Chat Input
-        # ------------------------
-        lang_placeholder = (
-            "Enter your question..." if st.session_state.language == "English" else "अपना प्रश्न दर्ज करें..."
-        )
-        if prompt := st.chat_input(lang_placeholder):
-            st.chat_message("user").write(prompt)
-            st.session_state.messages.append({"role": "user", "content": prompt})
-
-            with open("temp.pdf", "wb") as f:
-                f.write(prompt)
-                
-
-            # Update conversation title if new
-            if st.session_state.active_conversation:
-                conv_id = st.session_state.active_conversation
-                conv_row = db.execute(select(conversations).where(conversations.c.id == conv_id)).fetchone()
-                if conv_row.title == "New Chat":
-                    title_short = prompt if len(prompt) <= 30 else prompt[:30] + "..."
-                    db.execute(update(conversations).where(conversations.c.id == conv_id).values(title=title_short))
-                    db.commit()
-
-            with st.spinner("Thinking..."):
-                session_history = get_session_history(str(st.session_state.active_conversation))
-                response = conversational_rag_chain.invoke(
-                    {"input": prompt},
-                    config={"configurable": {"session_id": str(st.session_state.active_conversation)}}
-                )
-                answer = response["answer"]
-                st.chat_message("assistant").write(answer)
-                st.session_state.messages.append({"role": "assistant", "content": answer})
-
-                # Save chat to DB
-                if st.session_state.active_conversation:
-                    db.execute(insert(messages).values(
-                        conversation_id=st.session_state.active_conversation,
-                        role="user",
-                        content=prompt,
-                        timestamp=datetime.utcnow()
-                    ))
-                    db.execute(insert(messages).values(
-                        conversation_id=st.session_state.active_conversation,
-                        role="assistant",
-                        content=answer,
-                        timestamp=datetime.utcnow()
-                    ))
-                    db.commit()
+        else:
+            st.error("Invalid username or password.")
