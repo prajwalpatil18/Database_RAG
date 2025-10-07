@@ -208,16 +208,19 @@ else:
     # ------------------------
     #uploaded_files = st.sidebar.file_uploader("Upload PDF(s)", type="pdf", accept_multiple_files=True)
     #documents = []
-    
-    loader = PyPDFLoader("data.pdf")
+    path = f"./data.pdf"
+    documents = []
+    loader = PyPDFLoader(path)
     docs = loader.load()
+    documents.extend(docs)
+    
 
     # ------------------------
     # Build Vectorstore using FAISS (no locking)
     # ------------------------
     
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=500)
-    splits = text_splitter.split_documents(docs)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=5, chunk_overlap=5)
+    splits = text_splitter.split_documents(documents)
     vectorstore = FAISS.from_documents(splits, embeddings)
     retriever = vectorstore.as_retriever()
 
@@ -265,7 +268,7 @@ else:
     # ------------------------
     # Setup RAG Chain
     # ------------------------
-    if docs:
+    if documents:
         contextualize_q_system_prompt = (
             "Given a chat history and the latest user question, "
             "formulate a standalone question that can be understood "
