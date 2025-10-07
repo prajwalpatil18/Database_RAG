@@ -194,7 +194,7 @@ else:
     
     loader = PyPDFLoader("./data.pdf")
     docs = loader.load()
-    documents.extend(docs)
+    documents = docs
 
     # ------------------------
     # Build Vectorstore using FAISS (no locking)
