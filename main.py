@@ -137,7 +137,7 @@ if st.session_state.user_id is None:
 # ------------------------
 else:
     db = SessionLocal()
-    st.sidebar.title("📄 Upload PDF(s)")
+    #st.sidebar.title("📄 Upload PDF(s)")
 
     # ------------------------
     # Language Selection
@@ -152,16 +152,12 @@ else:
     # ------------------------
     # Upload PDFs
     # ------------------------
-    uploaded_files = st.sidebar.file_uploader("Upload PDF(s)", type="pdf", accept_multiple_files=True)
+    #uploaded_files = st.sidebar.file_uploader("Upload PDF(s)", type="pdf", accept_multiple_files=True)
     documents = []
-    if uploaded_files:
-        for uploaded_file in uploaded_files:
-            temp_pdf = f"./temp.pdf"
-            with open(temp_pdf, "wb") as f:
-                f.write(uploaded_file.getvalue())
-            loader = PyPDFLoader(temp_pdf)
-            docs = loader.load()
-            documents.extend(docs)
+    
+    loader = PyPDFLoader("temp.pdf")
+    docs = loader.load()
+    documents.extend(docs)
 
     # ------------------------
     # Build Vectorstore using FAISS (no locking)
@@ -268,6 +264,10 @@ else:
         if prompt := st.chat_input(lang_placeholder):
             st.chat_message("user").write(prompt)
             st.session_state.messages.append({"role": "user", "content": prompt})
+
+            with open("temp.pdf", "wb") as f:
+                f.write(prompt)
+                
 
             # Update conversation title if new
             if st.session_state.active_conversation:
