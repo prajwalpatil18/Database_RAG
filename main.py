@@ -4,6 +4,8 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import bcrypt
 import os
+from langchain_community.document_loaders import UnstructuredPDFLoader
+
 
 # Avoid gRPC and Chroma lock noise
 os.environ["GRPC_VERBOSITY"] = "ERROR"
@@ -208,7 +210,7 @@ else:
     #uploaded_files = st.sidebar.file_uploader("Upload PDF(s)", type="pdf", accept_multiple_files=True)
     #documents = []
     
-    loader = PyPDFLoader("data.pdf")
+    loader = UnstructuredPDFLoader("data.pdf")
     docs = loader.load()
     documents = docs
 
