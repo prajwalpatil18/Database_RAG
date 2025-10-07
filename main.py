@@ -5,6 +5,8 @@ from datetime import datetime
 import bcrypt
 import os
 from fpdf import FPDF
+from io import BytesIO
+
 
 # Avoid gRPC and Chroma lock noise
 os.environ["GRPC_VERBOSITY"] = "ERROR"
