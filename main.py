@@ -4,15 +4,13 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import bcrypt
 import os
-from fpdf import FPDF
-from io import BytesIO
-
 
 # Avoid gRPC and Chroma lock noise
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "false"
 
 # LangChain imports
+# --- REPLACED Chroma with FAISS to avoid file locking ---
 from langchain_community.vectorstores import FAISS
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
@@ -72,49 +70,6 @@ metadata.create_all(engine)
 SessionLocal = sessionmaker(bind=engine)
 
 # ------------------------
-# Helper: Ensure temp.pdf exists
-# ------------------------
-TEMP_PDF_PATH = "./temp.pdf"
-
-def ensure_temp_pdf():
-    """Create an empty PDF if not exists."""
-    if not os.path.exists(TEMP_PDF_PATH):
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt="Conversation Log", ln=True, align="C")
-        pdf.output(TEMP_PDF_PATH)
-
-def append_text_to_pdf(text):
-    """Append a new page with given text to temp.pdf safely."""
-    # Create a new single-page PDF in memory
-    pdf_buffer = BytesIO()
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    lines = text.split("\n")
-    for line in lines:
-        pdf.multi_cell(0, 10, txt=line)
-    pdf.output(pdf_buffer)
-    pdf_buffer.seek(0)
-
-    # Read both existing temp.pdf and the new one
-    writer = PdfWriter()
-    if os.path.exists(TEMP_PDF_PATH):
-        existing = PdfReader(TEMP_PDF_PATH)
-        for page in existing.pages:
-            writer.add_page(page)
-
-    # Append the new page
-    new_pdf = PdfReader(pdf_buffer)
-    for page in new_pdf.pages:
-        writer.add_page(page)
-
-    # Write combined output back to temp.pdf
-    with open(TEMP_PDF_PATH, "wb") as f:
-        writer.write(f)
-
-# ------------------------
 # Authentication Helpers
 # ------------------------
 def signup_user(username, password):
@@ -148,8 +103,44 @@ if "language" not in st.session_state:
 if "store" not in st.session_state:
     st.session_state.store = {}
 
-st.set_page_config(page_title="RAG Chat App", layout="wide")
-st.title("💬 Conversational RAG (Auto PDF)")
+st.set_page_config(page_title="RAG PDF Chat App", layout="wide")
+st.title("💬 Conversational RAG with PDF and Language Selection")
+
+
+
+from PyPDF2 import PdfReader, PdfWriter
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+import tempfile
+
+
+def append_text_to_pdf(pdf_path, new_text):
+    # Create a temporary PDF with the new text
+    temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    c = canvas.Canvas(temp_pdf.name, pagesize=letter)
+    c.drawString(100, 750, new_text)
+    c.save()
+
+    # Read the original and new PDFs
+    reader = PdfReader(pdf_path)
+    new_reader = PdfReader(temp_pdf.name)
+    writer = PdfWriter()
+
+    # Copy all old pages
+    for page in reader.pages:
+        writer.add_page(page)
+
+    # Add the new page with text
+    writer.add_page(new_reader.pages[0])
+
+    # Overwrite the original PDF
+    with open(pdf_path, "wb") as f:
+        writer.write(f)
+
+    # Clean up temp file
+    os.remove(temp_pdf.name)
+
+
 
 # ------------------------
 # Login / Signup
@@ -177,13 +168,17 @@ if st.session_state.user_id is None:
             else:
                 st.error(msg)
 
+
 # ------------------------
 # Main App (after login)
 # ------------------------
 else:
     db = SessionLocal()
-    ensure_temp_pdf()  # Ensure temp.pdf exists
+    #st.sidebar.title("📄 Upload PDF(s)")
 
+    # ------------------------
+    # Language Selection
+    # ------------------------
     st.sidebar.subheader("🌐 Choose Response Language")
     st.session_state.language = st.sidebar.radio(
         "Select a language for responses:",
@@ -192,16 +187,23 @@ else:
     )
 
     # ------------------------
-    # Load PDF (no upload option)
+    # Upload PDFs
     # ------------------------
-    loader = PyPDFLoader(TEMP_PDF_PATH)
-    documents = loader.load()
+    #uploaded_files = st.sidebar.file_uploader("Upload PDF(s)", type="pdf", accept_multiple_files=True)
+    documents = []
+    
+    loader = PyPDFLoader("./data.pdf")
+    docs = loader.load()
+    documents.extend(docs)
 
-    # Build FAISS retriever
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=500)
-    splits = text_splitter.split_documents(documents)
-    vectorstore = FAISS.from_documents(splits, embeddings)
-    retriever = vectorstore.as_retriever()
+    # ------------------------
+    # Build Vectorstore using FAISS (no locking)
+    # ------------------------
+    if documents:
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=500)
+        splits = text_splitter.split_documents(documents)
+        vectorstore = FAISS.from_documents(splits, embeddings)
+        retriever = vectorstore.as_retriever()
 
     # ------------------------
     # Sidebar Conversations
@@ -231,6 +233,7 @@ else:
                 st.success(f"Conversation '{conv.title}' deleted.")
                 st.rerun()
 
+    # Create New Conversation
     if st.sidebar.button("➕ New Chat"):
         result = db.execute(insert(conversations).values(user_id=st.session_state.user_id, title="New Chat"))
         db.commit()
@@ -246,90 +249,93 @@ else:
     # ------------------------
     # Setup RAG Chain
     # ------------------------
-    contextualize_q_system_prompt = (
-        "Given a chat history and the latest user question, "
-        "formulate a standalone question that can be understood "
-        "without chat history. Do NOT answer, just reformulate if needed."
-    )
-    contextualize_q_prompt = ChatPromptTemplate.from_messages(
-        [("system", contextualize_q_system_prompt), MessagesPlaceholder("chat_history"), ("human", "{input}")]
-    )
-    history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
+    if documents:
+        contextualize_q_system_prompt = (
+            "Given a chat history and the latest user question, "
+            "formulate a standalone question that can be understood "
+            "without chat history. Do NOT answer, just reformulate if needed."
+        )
+        contextualize_q_prompt = ChatPromptTemplate.from_messages(
+            [("system", contextualize_q_system_prompt), MessagesPlaceholder("chat_history"), ("human", "{input}")]
+        )
+        history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
 
-    system_prompt = (
-        f"You are an assistant for question-answering tasks. "
-        f"Use the following pieces of retrieved context to answer the question. "
-        f"If the answer is not in the pdf, say you don't know. Keep the answer concise (max 3 sentences). "
-        f"Always respond in {st.session_state.language} language.\n\n{{context}}"
-    )
+        # ✅ System prompt includes selected language
+        system_prompt = (
+            f"You are an assistant for question-answering tasks. "
+            f"Use the context to answer the question only. "
+            f"If the answer is not in the content say don't know strictly . Keep the answer concise (max 3 sentences). "
+            f"Always respond in {st.session_state.language} language.\n\n{{context}}"
+        )
 
-    qa_prompt = ChatPromptTemplate.from_messages(
-        [("system", system_prompt), MessagesPlaceholder("chat_history"), ("human", "{input}")]
-    )
-    question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
-    rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+        qa_prompt = ChatPromptTemplate.from_messages(
+            [("system", system_prompt), MessagesPlaceholder("chat_history"), ("human", "{input}")]
+        )
+        question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
+        rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
 
-    def get_session_history(session_id: str) -> BaseChatMessageHistory:
-        if session_id not in st.session_state.store:
-            st.session_state.store[session_id] = ChatMessageHistory()
-        return st.session_state.store[session_id]
+        def get_session_history(session_id: str) -> BaseChatMessageHistory:
+            if session_id not in st.session_state.store:
+                st.session_state.store[session_id] = ChatMessageHistory()
+            return st.session_state.store[session_id]
 
-    conversational_rag_chain = RunnableWithMessageHistory(
-        rag_chain, get_session_history,
-        input_messages_key="input",
-        history_messages_key="chat_history",
-        output_messages_key="answer"
-    )
+        conversational_rag_chain = RunnableWithMessageHistory(
+            rag_chain, get_session_history,
+            input_messages_key="input",
+            history_messages_key="chat_history",
+            output_messages_key="answer"
+        )
 
-    # ------------------------
-    # Display Chat
-    # ------------------------
-    for msg in st.session_state.messages:
-        st.chat_message(msg["role"]).write(msg["content"])
+        # ------------------------
+        # Display Chat
+        # ------------------------
+        for msg in st.session_state.messages:
+            st.chat_message(msg["role"]).write(msg["content"])
 
-    # ------------------------
-    # Chat Input
-    # ------------------------
-    lang_placeholder = (
-        "Enter your question..." if st.session_state.language == "English" else "अपना प्रश्न दर्ज करें..."
-    )
-    if prompt := st.chat_input(lang_placeholder):
-        st.chat_message("user").write(prompt)
-        st.session_state.messages.append({"role": "user", "content": prompt})
+        # ------------------------
+        # Chat Input
+        # ------------------------
+        lang_placeholder = (
+            "Enter your question..." if st.session_state.language == "English" else "अपना प्रश्न दर्ज करें..."
+        )
+        if prompt := st.chat_input(lang_placeholder):
+            st.chat_message("user").write(prompt)
+            st.session_state.messages.append({"role": "user", "content": prompt})
 
-        if st.session_state.active_conversation:
-            conv_id = st.session_state.active_conversation
-            conv_row = db.execute(select(conversations).where(conversations.c.id == conv_id)).fetchone()
-            if conv_row.title == "New Chat":
-                title_short = prompt if len(prompt) <= 30 else prompt[:30] + "..."
-                db.execute(update(conversations).where(conversations.c.id == conv_id).values(title=title_short))
-                db.commit()
+            append_text_to_pdf("./data.pdf", prompt)
 
-        with st.spinner("Thinking..."):
-            session_history = get_session_history(str(st.session_state.active_conversation))
-            response = conversational_rag_chain.invoke(
-                {"input": prompt},
-                config={"configurable": {"session_id": str(st.session_state.active_conversation)}}
-            )
-            answer = response["answer"]
-            st.chat_message("assistant").write(answer)
-            st.session_state.messages.append({"role": "assistant", "content": answer})
-
-            # Save chat to DB
+            # Update conversation title if new
             if st.session_state.active_conversation:
-                db.execute(insert(messages).values(
-                    conversation_id=st.session_state.active_conversation,
-                    role="user",
-                    content=prompt,
-                    timestamp=datetime.utcnow()
-                ))
-                db.execute(insert(messages).values(
-                    conversation_id=st.session_state.active_conversation,
-                    role="assistant",
-                    content=answer,
-                    timestamp=datetime.utcnow()
-                ))
-                db.commit()
+                conv_id = st.session_state.active_conversation
+                conv_row = db.execute(select(conversations).where(conversations.c.id == conv_id)).fetchone()
+                if conv_row.title == "New Chat":
+                    title_short = prompt if len(prompt) <= 30 else prompt[:30] + "..."
+                    db.execute(update(conversations).where(conversations.c.id == conv_id).values(title=title_short))
+                    db.commit()
 
-            # Append the user prompt to temp.pdf
-            append_text_to_pdf(f"\nUser: {prompt}\nAssistant: {answer}\n")
+            with st.spinner("Thinking..."):
+                session_history = get_session_history(str(st.session_state.active_conversation))
+                response = conversational_rag_chain.invoke(
+                    {"input": prompt},
+                    config={"configurable": {"session_id": str(st.session_state.active_conversation)}}
+                )
+                answer = response["answer"]
+                st.chat_message("assistant").write(answer)
+                st.session_state.messages.append({"role": "assistant", "content": answer})
+
+                # Save chat to DB
+                if st.session_state.active_conversation:
+                    db.execute(insert(messages).values(
+                        conversation_id=st.session_state.active_conversation,
+                        role="user",
+                        content=prompt,
+                        timestamp=datetime.utcnow()
+                    ))
+                    db.execute(insert(messages).values(
+                        conversation_id=st.session_state.active_conversation,
+                        role="assistant",
+                        content=answer,
+                        timestamp=datetime.utcnow()
+                    ))
+                    db.commit()
+
