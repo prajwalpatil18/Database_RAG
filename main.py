@@ -142,6 +142,22 @@ def append_text_to_pdf(pdf_path, new_text):
 
 
 
+
+from fpdf import FPDF
+import os
+
+os.makedirs("data", exist_ok=True)
+pdf_path = "data.pdf"
+
+pdf = FPDF()
+pdf.add_page()               # Add one empty page
+pdf.set_font("Arial", size=12)
+pdf.cell(0, 10, txt="")      # Optional placeholder text
+pdf.output(pdf_path)
+
+print(f"Created valid PDF at {pdf_path}")
+
+
 # ------------------------
 # Login / Signup
 # ------------------------
