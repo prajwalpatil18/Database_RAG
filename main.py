@@ -190,7 +190,7 @@ else:
     # Upload PDFs
     # ------------------------
     #uploaded_files = st.sidebar.file_uploader("Upload PDF(s)", type="pdf", accept_multiple_files=True)
-    documents = []
+    #documents = []
     
     loader = PyPDFLoader("./data/data.pdf")
     docs = loader.load()
