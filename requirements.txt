@@ -41,4 +41,5 @@ langchain-community==0.2.10
 langchain-chroma==0.1.4
 chromadb==0.5.3
 fpdf
-
+PyPDF2 
+reportlab
