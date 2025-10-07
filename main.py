@@ -302,7 +302,7 @@ else:
             st.chat_message("user").write(prompt)
             st.session_state.messages.append({"role": "user", "content": prompt})
 
-            append_text_to_pdf("./data.pdf", prompt)
+            #append_text_to_pdf("./data.pdf", prompt)
 
             # Update conversation title if new
             if st.session_state.active_conversation:
