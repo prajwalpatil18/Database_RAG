@@ -84,14 +84,33 @@ def ensure_temp_pdf():
         pdf.output(TEMP_PDF_PATH)
 
 def append_text_to_pdf(text):
-    """Append text as a new page to temp.pdf."""
+    """Append a new page with given text to temp.pdf safely."""
+    # Create a new single-page PDF in memory
+    pdf_buffer = BytesIO()
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
     lines = text.split("\n")
     for line in lines:
         pdf.multi_cell(0, 10, txt=line)
-    pdf.output(TEMP_PDF_PATH, "a")
+    pdf.output(pdf_buffer)
+    pdf_buffer.seek(0)
+
+    # Read both existing temp.pdf and the new one
+    writer = PdfWriter()
+    if os.path.exists(TEMP_PDF_PATH):
+        existing = PdfReader(TEMP_PDF_PATH)
+        for page in existing.pages:
+            writer.add_page(page)
+
+    # Append the new page
+    new_pdf = PdfReader(pdf_buffer)
+    for page in new_pdf.pages:
+        writer.add_page(page)
+
+    # Write combined output back to temp.pdf
+    with open(TEMP_PDF_PATH, "wb") as f:
+        writer.write(f)
 
 # ------------------------
 # Authentication Helpers
