@@ -4,7 +4,6 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import bcrypt
 import os
-from langchain_community.document_loaders import UnstructuredPDFLoader
 
 
 # Avoid gRPC and Chroma lock noise
@@ -110,7 +109,7 @@ st.title("💬 Conversational RAG with PDF and Language Selection")
 
 
 
-from PyPDF2 import PdfReader, PdfWriter
+from PyPDF2 import PdfReader, PdfWriter # type: ignore
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 import tempfile
@@ -210,18 +209,17 @@ else:
     #uploaded_files = st.sidebar.file_uploader("Upload PDF(s)", type="pdf", accept_multiple_files=True)
     #documents = []
     
-    loader = UnstructuredPDFLoader("data.pdf")
+    loader = PyPDFLoader("data.pdf")
     docs = loader.load()
-    documents = docs
 
     # ------------------------
     # Build Vectorstore using FAISS (no locking)
     # ------------------------
-    if documents:
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=500)
-        splits = text_splitter.split_documents(documents)
-        vectorstore = FAISS.from_documents(splits, embeddings)
-        retriever = vectorstore.as_retriever()
+    
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=500)
+    splits = text_splitter.split_documents(docs)
+    vectorstore = FAISS.from_documents(splits, embeddings)
+    retriever = vectorstore.as_retriever()
 
     # ------------------------
     # Sidebar Conversations
@@ -267,7 +265,7 @@ else:
     # ------------------------
     # Setup RAG Chain
     # ------------------------
-    if documents:
+    if docs:
         contextualize_q_system_prompt = (
             "Given a chat history and the latest user question, "
             "formulate a standalone question that can be understood "
@@ -356,4 +354,3 @@ else:
                         timestamp=datetime.utcnow()
                     ))
                     db.commit()
-
