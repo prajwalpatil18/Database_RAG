@@ -28,6 +28,8 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from dotenv import load_dotenv
 load_dotenv()
 
+git_api_key = st.secrets("GIT_API")
+
 # ------------------------
 # Setup Embeddings & Groq
 # ------------------------
@@ -116,12 +118,29 @@ from reportlab.lib.pagesizes import letter
 import tempfile
 
 
-def append_text_to_file(new_text: str, filename="data.txt"):
-    try:
-        with open(filename, "a", encoding="utf-8") as f:
-            f.write(new_text.strip() + "\n")
-    except Exception as e:
-        st.error(f"Error writing to file: {e}")
+def append_text_to_file(new_text: str):
+    import requests
+    import base64
+    
+    url = f"https://api.github.com/repos/{username}/{repo}/contents/data.txt"
+    
+    headers = {"Authorization": f"token {git_api}"}
+    
+    # Example: get current file SHA
+    resp = requests.get(url, headers=headers).json()
+    sha = resp["sha"]
+    
+    # Prepare new content
+    b64_content = base64.b64encode(new_text.encode("utf-8")).decode("utf-8")
+    
+    # Commit update
+    requests.put(url, headers=headers, json={
+        "message": "Updated via Streamlit app",
+        "content": b64_content,
+        "sha": sha
+    })
+
+    
         
     
 from fpdf import FPDF
