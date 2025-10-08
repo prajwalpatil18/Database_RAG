@@ -213,6 +213,8 @@ else:
     loader = PyPDFLoader(path)
     docs = loader.load()
     #documents.extend(docs)
+    print(f"Documents loaded: {len(docs)}")
+
     
 
     # ------------------------
@@ -221,6 +223,7 @@ else:
     
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     splits = text_splitter.split_documents(docs)
+    print(f"Splits created: {len(splits)}")
     vectorstore = FAISS.from_documents(splits, embeddings)
     retriever = vectorstore.as_retriever()
 
