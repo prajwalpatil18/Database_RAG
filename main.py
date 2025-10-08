@@ -28,7 +28,7 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from dotenv import load_dotenv
 load_dotenv()
 
-git_api_key = st.secrets("GIT_API")
+git_api_key = os.getenv("GIT_API")
 
 # ------------------------
 # Setup Embeddings & Groq
