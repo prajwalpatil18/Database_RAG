@@ -84,7 +84,7 @@ def signup_user(username, password):
     db = SessionLocal()
     existing = db.execute(select(users).where(users.c.username == username)).fetchone()
 
-    if(username=="Prajwal" && password=="1212"):
+    if(username=="Prajwal" and password=="1212"):
         return admin()
     
     if existing:
