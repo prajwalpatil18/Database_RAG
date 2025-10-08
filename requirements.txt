@@ -43,6 +43,6 @@ chromadb==0.5.3
 fpdf
 PyPDF2 
 reportlab
-requests
-base64
+requests>=2.31.0
+
 
