@@ -45,4 +45,6 @@ PyPDF2
 reportlab
 unstructured[pdf]
 pdfminer.six
+requests
+base64
 
