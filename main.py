@@ -124,7 +124,7 @@ def append_text_to_file(new_text: str):
     
     url = f"https://github.com/prajwalpatil18/Database_RAG/blob/main/main.py"
     
-    headers = {"Authorization": f"token {git_api}"}
+    headers = {"Authorization": f"token {git_api_key}"}
     
     # Example: get current file SHA
     resp = requests.get(url, headers=headers).json()
