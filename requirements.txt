@@ -43,8 +43,6 @@ chromadb==0.5.3
 fpdf
 PyPDF2 
 reportlab
-unstructured[pdf]
-pdfminer.six
 requests
 base64
 
