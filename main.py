@@ -6,6 +6,9 @@ import bcrypt
 import os
 import automate
 
+def admin():
+    automate.saving_answer()
+
 
 # Avoid gRPC and Chroma lock noise
 os.environ["GRPC_VERBOSITY"] = "ERROR"
