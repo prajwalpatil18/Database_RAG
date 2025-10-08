@@ -214,6 +214,9 @@ else:
     docs = loader.load()
     #documents.extend(docs)
     print(f"Documents loaded: {len(docs)}")
+    print("Document content preview:")
+    print(docs[0].page_content[:500])  # show first 500 chars
+
 
     
 
