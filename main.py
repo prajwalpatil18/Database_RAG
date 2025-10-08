@@ -116,35 +116,11 @@ from reportlab.lib.pagesizes import letter
 import tempfile
 
 
-def append_text_to_pdf(pdf_path, new_text):
-    # Create a temporary PDF with the new text
-    temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    c = canvas.Canvas(temp_pdf.name, pagesize=letter)
-    c.drawString(100, 750, new_text)
-    c.save()
-
-    # Read the original and new PDFs
-    reader = PdfReader(pdf_path)
-    new_reader = PdfReader(temp_pdf.name)
-    writer = PdfWriter()
-
-    # Copy all old pages
-    for page in reader.pages:
-        writer.add_page(page)
-
-    # Add the new page with text
-    writer.add_page(new_reader.pages[0])
-
-    # Overwrite the original PDF
-    with open(pdf_path, "wb") as f:
-        writer.write(f)
-
-    # Clean up temp file
-    os.remove(temp_pdf.name)
-
-
-
-
+def append_text_to_file(new_text):
+    with open("example.txt", "a", encoding="utf-8") as f:
+        f.write(new_text + "\n")
+        
+    
 from fpdf import FPDF
 import os
 
@@ -327,7 +303,7 @@ else:
             st.chat_message("user").write(prompt)
             st.session_state.messages.append({"role": "user", "content": prompt})
 
-            #append_text_to_pdf("./data.pdf", prompt)
+            append_text_to_file(prompt)
 
             # Update conversation title if new
             if st.session_state.active_conversation:
