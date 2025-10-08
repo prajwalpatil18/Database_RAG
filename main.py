@@ -219,7 +219,7 @@ else:
     # Build Vectorstore using FAISS (no locking)
     # ------------------------
     
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=5, chunk_overlap=5)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     splits = text_splitter.split_documents(docs)
     vectorstore = FAISS.from_documents(splits, embeddings)
     retriever = vectorstore.as_retriever()
