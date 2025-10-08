@@ -116,9 +116,12 @@ from reportlab.lib.pagesizes import letter
 import tempfile
 
 
-def append_text_to_file(new_text):
-    with open("example.txt", "a", encoding="utf-8") as f:
-        f.write(new_text + "\n")
+def append_text_to_file(new_text: str, filename="data.txt"):
+    try:
+        with open(filename, "a", encoding="utf-8") as f:
+            f.write(new_text.strip() + "\n")
+    except Exception as e:
+        st.error(f"Error writing to file: {e}")
         
     
 from fpdf import FPDF
@@ -262,12 +265,27 @@ else:
         history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
 
         # ✅ System prompt includes selected language
+
+        selected_lang = st.session_state.language
+        
+
+# Dynamic fallback phrases
+        dont_know_responses = {
+    "English": "I don't know about this.",
+    "Hindi": "मुझे नहीं पता।"
+}
+        
+
         system_prompt = (
-            f"You are an assistant for question-answering tasks. "
-            f"Use the text file content to answer the question only. "
-            f"If the answer is not in the text file say don't know strictly in {st.session_state.language} language.. Keep the answer concise (max 3 sentences). "
-            f"Always respond in {st.session_state.language} language.\n\n{{context}}"
-        )
+    f"You are an assistant for question-answering tasks. "
+    f"Use only the information available in the provided text file content to answer the user's question. "
+    f"If the answer is not present in the text file, strictly respond with "
+    f"'{dont_know_responses[selected_lang]}' "
+    f"in {selected_lang} language. "
+    f"Keep the answer concise (maximum 3 sentences). "
+    f"Always respond in {selected_lang} language.\n\n{{context}}"
+)
+
 
         qa_prompt = ChatPromptTemplate.from_messages(
             [("system", system_prompt), MessagesPlaceholder("chat_history"), ("human", "{input}")]
