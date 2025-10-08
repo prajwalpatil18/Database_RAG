@@ -288,8 +288,8 @@ else:
         # ✅ System prompt includes selected language
         system_prompt = (
             f"You are an assistant for question-answering tasks. "
-            f"Use the context to answer the question only. "
-            f"If the answer is not in the content say don't know strictly . Keep the answer concise (max 3 sentences). "
+            f"Use the text file content to answer the question only. "
+            f"If the answer is not in the text file say don't know strictly . Keep the answer concise (max 3 sentences). "
             f"Always respond in {st.session_state.language} language.\n\n{{context}}"
         )
 
