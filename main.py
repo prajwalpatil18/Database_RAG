@@ -28,7 +28,7 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from dotenv import load_dotenv
 load_dotenv()
 
-git_api_key = os.getenv("GIT_API")
+#git_api_key = os.getenv("GIT_API")
 
 # ------------------------
 # Setup Embeddings & Groq
@@ -123,8 +123,9 @@ def append_text_to_file(new_text: str):
     import base64
     
     url = "https://api.github.com/repos/prajwalpatil18/Database_RAG/contents/data.txt"
+    headers = {"Authorization": f"token {st.secrets['GIT_API']}"}
+
     
-    headers = {"Authorization": f"token {git_api_key}"}
     
     # Example: get current file SHA
     resp = requests.get(url, headers=headers).json()
