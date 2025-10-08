@@ -122,7 +122,7 @@ def append_text_to_file(new_text: str):
     import requests
     import base64
     
-    url = f"https://github.com/prajwalpatil18/Database_RAG/blob/main/main.py"
+    url = f"https://github.com/prajwalpatil18/Database_RAG/blob/main/data.txt"
     
     headers = {"Authorization": f"token {git_api_key}"}
     
