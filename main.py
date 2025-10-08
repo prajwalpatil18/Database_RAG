@@ -127,6 +127,8 @@ def append_text_to_file(new_text: str):
     
     url = "https://api.github.com/repos/prajwalpatil18/Database_RAG/contents/data.txt"
     headers = {"Authorization": f"token {st.secrets['GIT_API']}"}
+
+    resp = requests.get(url,headers = headers)
     
     if resp.status_code == 200:
         data = resp.json()
