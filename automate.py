@@ -14,7 +14,7 @@ def saving_answer:
     # When user hits Enter
     if user_input:
         st.session_state.saved_text = user_input  # Save latest input
-        st.experimental_rerun()  # Clear input box
+        st.rerun()  # Clear input box
     
     # At this point, the latest input is stored in:
     # st.session_state.saved_text
