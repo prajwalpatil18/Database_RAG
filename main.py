@@ -212,7 +212,7 @@ else:
     documents = []
     loader = PyPDFLoader(path)
     docs = loader.load()
-    documents.extend(docs)
+    #documents.extend(docs)
     
 
     # ------------------------
@@ -220,7 +220,7 @@ else:
     # ------------------------
     
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=5, chunk_overlap=5)
-    splits = text_splitter.split_documents(documents)
+    splits = text_splitter.split_documents(docs)
     vectorstore = FAISS.from_documents(splits, embeddings)
     retriever = vectorstore.as_retriever()
 
@@ -268,7 +268,7 @@ else:
     # ------------------------
     # Setup RAG Chain
     # ------------------------
-    if documents:
+    if docs:
         contextualize_q_system_prompt = (
             "Given a chat history and the latest user question, "
             "formulate a standalone question that can be understood "
