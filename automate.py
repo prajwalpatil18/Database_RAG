@@ -1,9 +1,8 @@
 # app.py
 def saving_answer():
    
-
+   output = 0
    while(output!=1):
-      output = 0
       
    
       import streamlit as st
