@@ -8,10 +8,6 @@ import automate
 
 def admin():
     automate.saving_answer()
-    st.session_state.user_id = None
-    st.session_state.active_conversation = None
-    st.session_state.messages = []
-    st.rerun()
     return True, 0
 
 
