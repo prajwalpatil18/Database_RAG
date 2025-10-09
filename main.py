@@ -8,6 +8,7 @@ import automate
 
 def admin():
     automate.saving_answer()
+    return True, 0
 
 
 # Avoid gRPC and Chroma lock noise
