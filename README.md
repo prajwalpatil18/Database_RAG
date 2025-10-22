@@ -36,7 +36,7 @@ Each chat session is stored separately and can be viewed later from the **sideba
 📁 SQL_Implementation/
 │
 ├── main.py                # Main Streamlit application
-├── chat.db                # SQLite database file (auto-created)
+├── rag_chat.db                # SQLite database file (auto-created)
 ├── requirements.txt       # Required dependencies
 └── README.md              # Project documentation
 ```
@@ -130,17 +130,7 @@ openai
 
 **Prajwal Patil**
 💼 IT Professional | ⚙️ AI & Data Engineering Enthusiast
-📧 Email: *[your email here]*
+
 
 ---
 
-### 📄 License
-
-This project is licensed under the **MIT License** – feel free to use and modify it.
-
----
-
-Would you like me to:
-
-* ✅ make a **ready-to-download `README.md` file**, or
-* 📘 add **screenshots and usage examples** (for GitHub visuals)?
